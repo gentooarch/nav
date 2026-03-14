@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Ultimate Web Benchmark v6 (Worker 无 Ping 测试)</title>
+<style>
+body{
+    font-family:system-ui;
+    background:#0f172a;
+    color:white;
+    padding:30px;
+}
+.container{
+    max-width:1000px;
+    margin:auto;
+    background:#1e293b;
+    padding:25px;
+    border-radius:12px;
+}
+button{
+    padding:12px 25px;
+    font-size:16px;
+    background:#3b82f6;
+    border:none;
+    border-radius:8px;
+    color:white;
+    cursor:pointer;
+}
+.progress{
+    height:10px;
+    background:#334155;
+    border-radius:5px;
+    overflow:hidden;
+    margin-top:20px;
+}
+.bar{
+    height:100%;
+    width:0%;
+    background:#22c55e;
+    transition:width .3s;
+}
+.log{
+    margin-top:20px;
+    background:black;
+    padding:15px;
+    height:300px;
+    overflow:auto;
+    font-family:monospace;
+}
+.result{
+    margin-top:25px;
+    font-size:20px;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Ultimate Web Benchmark v6 (稳定版)</h2>
+    <button onclick="run()">Start Benchmark</button>
+
+    <div class="progress"><div id="bar" class="bar"></div></div>
+
+    <div id="log" class="log"></div>
+    <div id="result" class="result"></div>
+</div>
+
+<script>
+
+// 记录日志
+const log = msg => {
+    document.getElementById("log").innerHTML += msg + "<br>";
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---- CPU / JS ----
+function testCPUInt(){
+    let x=0;
+    for(let i=0;i<50000000;i++){
+        x += (i & 0xff);
+    }
+}
+
+function testCPUIntFP(){
+    let x=0;
+    for(let i=0;i<40000000;i++){
+        x += Math.sqrt(i);
+    }
+}
+
+function testArraySort(){
+    let arr = new Array(2000000);
+    for(let i=0;i<arr.length;i++){
+        arr[i] = Math.random();
+    }
+    arr.sort();
+}
+
+function testTypedArrayOps(){
+    let a=new Float64Array(1500000), b=new Float64Array(1500000);
+    for(let i=0;i<a.length;i++){
+        a[i]=Math.random(); b[i]=Math.random();
+    }
+    for(let i=0;i<a.length;i++){
+        a[i] = a[i] * b[i];
+    }
+}
+
+function testStringAndRegExp(){
+    let s = "";
+    for(let i=0;i<100000;i++){
+        s += "Benchmark";
+    }
+    s.replace(/Benchmark/g, "Test");
+}
+
+function testJSONWork(){
+    let obj={};
+    for(let i=0;i<100000;i++){
+        obj["k"+i]=Math.random();
+    }
+    let s=JSON.stringify(obj);
+    JSON.parse(s);
+}
+
+async function testPromiseLoop(){
+    for(let i=0;i<20000;i++){
+        await Promise.resolve();
+    }
+}
+
+function testGCMemoryStress(){
+    let arr=[];
+    for(let i=0;i<80000;i++){
+        arr.push(new Array(50).fill(Math.random()));
+    }
+}
+
+// ---- Worker CPU only ----
+function testWorkerCPU(){
+    return new Promise(resolve => {
+        let code = `
+        self.onmessage = function(){
+            let sum = 0;
+            for(let i=0;i<30000000;i++){
+                sum+=i;
+            }
+            postMessage(sum);
+        };
+        `;
+        let worker = new Worker(URL.createObjectURL(new Blob([code], { type:"text/javascript" })));
+        worker.onmessage = () => resolve();
+        worker.postMessage(0);
+    });
+}
+
+// ---- DOM / Layout ----
+function testMassiveDOM(){
+    let c = document.createElement("div");
+    for(let i=0;i<40000;i++){
+        let d=document.createElement("div");
+        d.textContent = i;
+        c.appendChild(d);
+    }
+    document.body.appendChild(c);
+    c.remove();
+}
+
+function testLayoutPressure(){
+    let c=document.createElement("div");
+    c.style.display="grid"; c.style.gridTemplateColumns="repeat(40,1fr)";
+    for(let i=0;i<3000;i++){
+        let d=document.createElement("div");
+        d.style.height="20px"; c.appendChild(d);
+    }
+    document.body.appendChild(c);
+    c.remove();
+}
+
+function testCSSRecalc(){
+    let c=document.createElement("div");
+    for(let i=0;i<10000;i++){
+        let d=document.createElement("div");
+        d.className="bench"; c.appendChild(d);
+    }
+    document.body.appendChild(c);
+    c.style.color="red";
+    c.remove();
+}
+
+// ---- Graphics ----
+function testCanvas2D(){
+    let canvas=document.createElement("canvas");
+    canvas.width=600; canvas.height=400;
+    let ctx = canvas.getContext("2d");
+    for(let i=0;i<8000;i++){
+        ctx.fillRect(Math.random()*600, Math.random()*400,2,2);
+    }
+}
+
+function testCanvasComplex(){
+    let canvas=document.createElement("canvas");
+    canvas.width=800; canvas.height=600;
+    let ctx = canvas.getContext("2d");
+    for(let i=0;i<12000;i++){
+        ctx.beginPath();
+        ctx.arc(Math.random()*800, Math.random()*600, Math.random()*20,0,Math.PI*2);
+        ctx.fill();
+    }
+}
+
+function testWebGLBasic(){
+    let canvas=document.createElement("canvas");
+    let gl=canvas.getContext("webgl");
+    if(!gl) return;
+    let buf=gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    let arr = new Float32Array(80000);
+    gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+}
+
+function testSVGMany(){
+    let svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    for(let i=0;i<2500;i++){
+        let c=document.createElementNS("http://www.w3.org/2000/svg","circle");
+        svg.appendChild(c);
+    }
+    document.body.appendChild(svg);
+    svg.remove();
+}
+
+function testFontRaster(){
+    let d=document.createElement("div");
+    d.innerText="Benchmark ".repeat(10000);
+    document.body.appendChild(d);
+    d.remove();
+}
+
+// ---- Storage ----
+function testIndexedDB(){
+    return new Promise(resolve=>{
+        let req=indexedDB.open("benchv6db2",1);
+        req.onupgradeneeded=e=>{
+            e.target.result.createObjectStore("t");
+        };
+        req.onsuccess=e=>{
+            let db=e.target.result;
+            let tx=db.transaction("t","readwrite");
+            let s=tx.objectStore("t");
+            for(let i=0;i<300;i++){
+                s.put(Math.random(),i);
+            }
+            tx.oncomplete = resolve;
+        };
+    });
+}
+
+function testLocalStorage(){
+    for(let i=0;i<800;i++){
+        localStorage.setItem("vb6-"+i, Math.random());
+    }
+}
+
+const tests = [
+    ["Int Math", testCPUInt],
+    ["Float Math", testCPUIntFP],
+    ["Array Sort", testArraySort],
+    ["TypedArray Ops", testTypedArrayOps],
+    ["String & RegExp", testStringAndRegExp],
+    ["JSON Work", testJSONWork],
+    ["Promise Loop", testPromiseLoop],
+    ["GC Memory Stress", testGCMemoryStress],
+    ["Worker CPU", testWorkerCPU],
+    ["Massive DOM", testMassiveDOM],
+    ["Layout Pressure", testLayoutPressure],
+    ["CSS Recalc", testCSSRecalc],
+    ["Canvas 2D", testCanvas2D],
+    ["Canvas Complex", testCanvasComplex],
+    ["WebGL Basic", testWebGLBasic],
+    ["SVG Many", testSVGMany],
+    ["Font Raster", testFontRaster],
+    ["IndexedDB", testIndexedDB],
+    ["LocalStorage", testLocalStorage]
+];
+
+async function run(){
+    document.getElementById("log").innerHTML="";
+    document.getElementById("result").innerHTML="";
+    document.getElementById("bar").style.width="0%";
+    let total=0, lines=[];
+
+    for(let i=0;i<tests.length;i++){
+        let [name, fn] = tests[i];
+        log("Running "+name+" ...");
+        let start = performance.now();
+        await fn();   // async safe
+        let t = performance.now() - start;
+        log(name+" : "+t.toFixed(2)+" ms");
+        lines.push(`${name}: ${t.toFixed(2)} ms`);
+        total += t;
+        document.getElementById("bar").style.width = ((i+1)/tests.length*100)+"%";
+        await sleep(40);
+    }
+
+    document.getElementById("result").innerHTML = 
+        "Total Time: "+total.toFixed(2)+" ms<br><br>"+lines.join("<br>");
+}
+</script>
+</body>
+</html>
